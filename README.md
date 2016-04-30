@@ -1,3 +1,8 @@
+Fork of droid-VNC-server that uses openstf's minicap shared library for screen capture, with some additional features.
+WIP - Currently only works as a VNC viewer
+
+## Original docs
+
 The droid-VNC-server projects consists in three main modules parts: the daemon, wrapper libs and the GUI.
 
 ## Daemon
