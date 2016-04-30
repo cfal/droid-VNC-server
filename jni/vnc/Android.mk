@@ -1,7 +1,7 @@
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
 
-LIBVNCSERVER_ROOT:=./LibVNCServer-0.9.9
+LIBVNCSERVER_ROOT:=./libvncserver
 
 LIBVNCSERVER_SRC_FILES:= \
 	$(LIBVNCSERVER_ROOT)/libvncserver/main.c \
@@ -37,32 +37,27 @@ LIBVNCSERVER_SRC_FILES:= \
 	$(LIBVNCSERVER_ROOT)/common/zywrletemplate.c \
 	$(LIBVNCSERVER_ROOT)/common/turbojpeg.c
 
-LOCAL_CFLAGS  +=  -Wall -Wno-unused-variable -Wno-maybe-uninitialized -Wno-unused-but-set-variable\
-									-O3 \
-									-DLIBVNCSERVER_WITH_WEBSOCKETS \
-									-DLIBVNCSERVER_HAVE_LIBPNG \
-									-DLIBVNCSERVER_HAVE_ZLIB \
-									-DLIBVNCSERVER_HAVE_LIBJPEG \
-									-DNOAPP
+LOCAL_CFLAGS += \
+  -Wall \
+  -Wno-unused-variable \
+  -Wno-maybe-uninitialized \
+  -Wno-unused-but-set-variable \
+  -DLIBVNCSERVER_WITH_WEBSOCKETS \
+  -DLIBVNCSERVER_HAVE_LIBPNG \
+  -DLIBVNCSERVER_HAVE_ZLIB \
+  -DLIBVNCSERVER_HAVE_LIBJPEG \
+  -DNOAPP
 
 LOCAL_LDLIBS +=  -llog -lz -ldl
 
 LOCAL_SRC_FILES += \
-									 $(LIBVNCSERVER_SRC_FILES)\
-									 droidvncserver.c \
-									 gui.c \
-									 inputMethods/input.c \
-									 screenMethods/adb.c \
-									 screenMethods/framebuffer.c \
-									 screenMethods/gralloc.c \
-									 screenMethods/flinger.c \
-									 suinput/suinput.c
+										$(LIBVNCSERVER_SRC_FILES) \
+										rotation_watcher.cpp \
+										update_screen.cpp \
+										droidvncserver.cpp
 
 LOCAL_C_INCLUDES += \
 										$(LOCAL_PATH) \
-										$(LOCAL_PATH)/screenMethods \
-										$(LOCAL_PATH)/inputMethods \
-										$(LOCAL_PATH)/suinput \
 										$(LOCAL_PATH)/linux \
 										$(LOCAL_PATH)/../libpng \
 										$(LOCAL_PATH)/../libjpeg-turbo \
@@ -70,8 +65,9 @@ LOCAL_C_INCLUDES += \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/libvncserver \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/common \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/rfb \
-										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/ \
-										$(LOCAL_PATH)/../../nativeMethods/
+										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/
+
+LOCAL_SHARED_LIBRARIES := minicap-shared
 
 LOCAL_STATIC_LIBRARIES := libjpeg libpng libssl_static libcrypto_static
 
