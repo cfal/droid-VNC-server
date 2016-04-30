@@ -18,7 +18,6 @@
 #define CONVERT CONCAT3E(convertFormat, IN_BYTES_PER_PIXEL, OUT_BYTES_PER_PIXEL)
 
 void FUNCTION(Minicap::Frame *frame, int rotation) {
-    LOGD("%s rotation=%d", __func__, rotation);
     unsigned int stride = frame->stride, height = frame->height;
     IN_TYPE *data = (IN_TYPE *)frame->data;
     Minicap::Format format = frame->format;

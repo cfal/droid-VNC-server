@@ -17,7 +17,6 @@
 #define FUNCTION CONCAT2E(updateScreen, BYTES_PER_PIXEL)
 
 void FUNCTION(Minicap::Frame *frame, int rotation) {
-    LOGD("%s rotation=%d", __func__, rotation);
     unsigned int stride = frame->stride, height = frame->height;
     TYPE* data = (TYPE*) frame->data;
     if (rotation == 90) {
