@@ -15,39 +15,32 @@
 #endif
 
 #define FUNCTION CONCAT3E(updateScreen, IN_BYTES_PER_PIXEL, OUT_BYTES_PER_PIXEL)
-#define CONVERT CONCAT3E(convertFormat, IN_BYTES_PER_PIXEL, OUT_BYTES_PER_PIXEL)
 
-void FUNCTION(Minicap::Frame *frame, int rotation) {
-    unsigned int stride = frame->stride, height = frame->height;
-    IN_TYPE *data = (IN_TYPE *)frame->data;
-    Minicap::Format format = frame->format;
-    
-    if (rotation == 90) {
-        for (x = 0; x < stride; x++) {
-            for (y = 0; y < height; y++) {
-                int targetX = y;
-                int targetY = stride - x - 1;                        
-                ((OUT_TYPE*)vncbuf)[targetY * height + targetX] = CONVERT(format, data[y * stride + x]);
+void FUNCTION(int rotation) {
+    unsigned int stride = frame.stride, height = frame.height, width = frame.width;
+    IN_TYPE *data = (IN_TYPE *)frame.data;
+    if (rotation == 0) {
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                ((OUT_TYPE*)vncbuf)[y * width + x] = CONVERT(data[y * stride + x]);
+            }
+        }
+    } else if (rotation == 90) {
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                ((OUT_TYPE*)vncbuf)[x * height + (height - y - 1)] = CONVERT(data[y * stride + x]);
             }
         }                
     } else if (rotation == 180) {
-        for (x = 0; x < stride; x++) {
-            for (y = 0; y < height; y++) {
-                ((OUT_TYPE*)vncbuf)[y * stride + x] = CONVERT(format, data[(height - 1 - y) * stride + (stride - 1 - x)]);
+        for (y = 0; y < height; y++) {        
+            for (x = 0; x < width; x++) {
+                ((OUT_TYPE*)vncbuf)[(height - y - 1) * width + (width - 1 - x)] = CONVERT(data[y * stride + x]);
             }
         }
     } else if (rotation == 270) {
-        for (x = 0; x < stride; x++) {
+        for (x = 0; x < width; x++) {
             for (y = 0; y < height; y++) {
-                int targetX = height - y - 1;
-                int targetY = x;
-                ((OUT_TYPE*)vncbuf)[targetY * height + targetX] = CONVERT(format, data[y * stride + x]);
-            }
-        }
-    } else {
-        for (x = 0; x < stride; x++) {
-            for (y = 0; y < height; y++) {
-                ((OUT_TYPE*)vncbuf)[y * stride + x] = CONVERT(format, data[y * stride + x]);
+                ((OUT_TYPE*)vncbuf)[(width - x - 1) * height + y] = CONVERT(data[y * stride + x]);
             }
         }
     }

@@ -6,8 +6,8 @@ static FILE* rotationWatcher = NULL;
 static char rotateBuffer[40];
 
 #define ROTATION_PKG_PATH "/data/local/tmp/rotate.apk"
-#define ROTATION_PKG "jp.co.cyberagent.stf.rotationwatcher"
-#define ROTATION_PKG_CLASS "jp.co.cyberagent.stf.rotationwatcher.RotationWatcher"
+#define ROTATION_PKG "rotation.watcher"
+#define ROTATION_PKG_CLASS "rotation.watcher.RotationWatcher"
 
 static int try_install_rotation_watcher() {
     FILE *f;

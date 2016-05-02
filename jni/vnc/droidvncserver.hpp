@@ -16,10 +16,14 @@
 #include <condition_variable>
 
 #include "rfb/rfb.h"
+#include "Minicap.hpp"
+
+extern Minicap::Frame frame;
 extern rfbScreenInfoPtr vncscr;
 extern unsigned char *cmpbuf;
 extern unsigned char *vncbuf;
 
+const char *getImageFormatName();
 void cleanup(int);
 void print(int logPriority, FILE* stream, const char *format, ...);
 

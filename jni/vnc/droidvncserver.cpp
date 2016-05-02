@@ -40,7 +40,7 @@ static bool forcedRotation = false; // true if allowedRotation != ROT_ALL
 static bool rotate180 = false;
 static uint16_t scaling = 100;
 static bool skipFrames = false;
-static bool downgrade = false;
+static int desiredBpp = -1;
 
 // Screen info
 static fb_var_screeninfo screenInfo;
@@ -49,6 +49,7 @@ static int screenRotation; // Current screen rotation
 static int imageRotation; // Required frame rotation
 
 // shared VNC buffers and screen
+Minicap::Frame frame;
 rfbScreenInfoPtr vncscr;
 unsigned char *cmpbuf;
 unsigned char *vncbuf;
@@ -84,7 +85,6 @@ static rfbNewClientAction onClientConnect(rfbClientPtr cl)
     if (scaling != 100) {
         unsigned int scaledWidth = (unsigned int) (vncscr->width * scaling / 100.0 + 0.5);
         unsigned int scaledHeight = (unsigned int) (vncscr->height * scaling / 100.0 + 0.5);
-        LOGD("onClientConnect: Scaling to %dx%d", scaledWidth, scaledHeight);
         rfbScalingSetup(cl, scaledWidth, scaledHeight);
     }
 
@@ -99,93 +99,49 @@ static void onKeyEvent(rfbBool down, rfbKeySym key, rfbClientPtr cl) {
 static void onPointerEvent(int buttonMask, int x, int y, rfbClientPtr cl) {
 }
 
-static void reinitVncServer(int width, int height, int stride, int bpp, bool recreateBuffer) {
-    // Rescale clients
-    unsigned int scaledWidth, scaledHeight;
-    if (forcedRotation) {
-        if (imageRotation == 90 || imageRotation == 270) {
-            if (vncscr->width == height && vncscr->height == stride) {
-                LOGD("reinitVncServer: No action necessary!");
-                return;
-            }               
-            scaledWidth = (unsigned int) (height * scaling / 100.0 + 0.5);
-            scaledHeight = (unsigned int) (stride * scaling / 100.0 + 0.5);
-        } else {
-            if (vncscr->width == stride && vncscr->height == height) {
-                LOGD("reinitVncServer: No action necessary! (2)");
-                return;
-            }
-            scaledWidth = (unsigned int) (stride * scaling / 100.0 + 0.5);
-            scaledHeight = (unsigned int) (height * scaling / 100.0 + 0.5);
-        }
+static void reinitVncServer(int width, int height, int stride, int bpp) {
+    int targetWidth, targetHeight;
+    if (forcedRotation && (imageRotation == 90 || imageRotation == 270)) {
+        targetWidth = height;
+        targetHeight = width;
     } else {
-        if (vncscr->width == width && vncscr->height == height) {
-            LOGD("reinitVncServer: No action necessary! (3)");
-            return;            
-        }
-        scaledWidth = (unsigned int) (width * scaling / 100.0 + 0.5);
-        scaledHeight = (unsigned int) (height * scaling / 100.0 + 0.5);
+        targetWidth = width;
+        targetHeight= height;
     }
 
-    LOGD("reinitVncServer: bpp: %d width: %d, height: %d, stride: %d, recreateBuffer: %d", bpp, width, height, stride, recreateBuffer);
-
-    rfbClientIteratorPtr iterator = rfbGetClientIterator(vncscr);
-    rfbClientPtr cl;
-    while ((cl = rfbClientIteratorNext(iterator)) != NULL) {
-        rfbScalingSetup(cl, scaledWidth, scaledHeight);
-    }
-
-    // Set new framebuffer size
-    if (recreateBuffer) {
-        unsigned char *oldBuffer = (unsigned char *) vncscr->frameBuffer;
-        unsigned char *newBuffer = (unsigned char *) malloc(stride * height * bpp);
-        unsigned char *newCmpBuffer = (unsigned char *) malloc(stride * height * bpp);
-        if (forcedRotation) {
-            if (imageRotation == 90 || imageRotation == 270) {
-                rfbNewFramebuffer(vncscr, (char *)newBuffer, height, stride, 8, 3, bpp);
-            } else {
-                rfbNewFramebuffer(vncscr, (char *)newBuffer, stride, height, 8, 3, bpp);
-            }
-        } else {
-            rfbNewFramebuffer(vncscr, (char *)newBuffer, width, height, 8, 3, bpp);
-            vncscr->paddedWidthInBytes = stride * bpp;            
+    if (vncscr->width != targetWidth || vncscr->height != targetHeight) {
+        unsigned int scaledWidth = (unsigned int) (targetWidth * scaling / 100.0 + 0.5);
+        unsigned int scaledHeight = (unsigned int) (targetHeight * scaling / 100.0 + 0.5);
+        rfbClientIteratorPtr iterator = rfbGetClientIterator(vncscr);
+        rfbClientPtr cl;
+        while ((cl = rfbClientIteratorNext(iterator)) != NULL) {
+            rfbScalingSetup(cl, scaledWidth, scaledHeight);
         }
-        vncbuf = newBuffer;
-        cmpbuf = newCmpBuffer;
-        free(oldBuffer);
-    } else {
-        if (forcedRotation) {
-            if (imageRotation == 90 || imageRotation == 270) {
-                rfbNewFramebuffer(vncscr, (char *)vncscr->frameBuffer, height, stride, 8, 3, bpp);
-            } else {
-                rfbNewFramebuffer(vncscr, (char *)vncscr->frameBuffer, stride, height, 8, 3, bpp);
-            }
-        } else {
-            rfbNewFramebuffer(vncscr, (char *)vncscr->frameBuffer, width, height, 8, 3, bpp);
-            vncscr->paddedWidthInBytes = stride * bpp;            
-        }
+        
+        vncscr->width = targetWidth;
+        vncscr->height = targetHeight;
+        vncscr->paddedWidthInBytes = targetWidth * bpp;
     }
-    vncscr->bitsPerPixel = bpp * 8;
 }
 
 static void initVncServer(int argc, char **argv, unsigned int width, unsigned int height, unsigned int stride, unsigned int bpp)
 { 
-    LOGD("initVncServer: bpp: %d width: %d, height: %d, stride: %d", bpp, width, height, stride);
+    LOGD("initVncServer: bpp: %d, width: %d, height: %d, stride: %d", bpp, width, height, stride);
 
-    vncbuf = (unsigned char *) malloc(stride * height * bpp);
-    cmpbuf = (unsigned char *) malloc(stride * height * bpp);
+    vncbuf = (unsigned char *) malloc(width * height * bpp);
+    cmpbuf = (unsigned char *) malloc(width * height * bpp);
 
-    if (forcedRotation) {
-        if (imageRotation == 90 || imageRotation == 270) {
-            vncscr = rfbGetScreen(&argc, argv, height, stride, 8, 3, bpp);
-        } else {
-            vncscr = rfbGetScreen(&argc, argv, stride, height, 8, 3, bpp);
-        }
+    int targetWidth, targetHeight;
+    if (forcedRotation && (imageRotation == 90 || imageRotation == 270)) {
+        targetWidth = height;
+        targetHeight = width;
+            vncscr = rfbGetScreen(&argc, argv, height, width, 8, 3, bpp);
     } else {
-        vncscr = rfbGetScreen(&argc, argv, width, height, 8, 3, bpp);
-        vncscr->paddedWidthInBytes = stride * bpp;        
+        targetWidth = width;
+        targetHeight = height;
     }
-
+    vncscr = rfbGetScreen(&argc, argv, targetWidth, targetHeight, 8, 3, bpp);
+    
     vncscr->bitsPerPixel = bpp * 8;
     vncscr->deferUpdateTime = 5; // 5ms
     vncscr->port = serverPort;
@@ -218,6 +174,53 @@ static void initVncServer(int argc, char **argv, unsigned int width, unsigned in
     rfbInitServer(vncscr);
 }
 
+const char *getImageFormatName() {
+    switch (frame.format) {
+    case Minicap::FORMAT_NONE:
+        return "None";
+        break;
+    case Minicap::FORMAT_CUSTOM:
+        return "Custom";
+        break;
+    case Minicap::FORMAT_TRANSLUCENT:
+        return "Translucent";
+        break;
+    case Minicap::FORMAT_TRANSPARENT:
+        return "Transparent";
+        break;
+    case Minicap::FORMAT_OPAQUE:
+        return "Opaque";
+        break;        
+    case Minicap::FORMAT_RGBA_8888:
+        return "RGBA 8888";
+        break;
+    case Minicap::FORMAT_RGBX_8888:
+        return "RGBX 8888";
+        break;
+    case Minicap::FORMAT_RGB_888:
+        return "RGB 888";
+        break;
+    case Minicap::FORMAT_RGB_565:
+        return "RGB 565";
+        break;
+    case Minicap::FORMAT_BGRA_8888:
+        return "BGRA 8888";
+        break;
+    case Minicap::FORMAT_RGBA_5551:
+        return "RGBA 5551";
+        break;
+    case Minicap::FORMAT_RGBA_4444:
+        return "RGBA 4444";
+        break;
+    case Minicap::FORMAT_UNKNOWN:
+        return "Unknown";
+        break;
+    default:
+        FATAL("Unknown image format: %d", frame.format);
+    }
+    return NULL;
+}
+
 void cleanup(int exitCode)
 { 	
     LOGD("Cleaning up...");
@@ -242,7 +245,6 @@ static int extractHostPort(char **destHost, int *destPort, char *str)
 
     /* copy in to host */
     char *rhost = *destHost = (char *) malloc(len + 1);
-    rhost = (char *) malloc(len+1);
     if (!rhost) {
         LOGE("extractHostPort: could not malloc string %d", len);
         return 1;
@@ -266,7 +268,7 @@ static int extractHostPort(char **destHost, int *destPort, char *str)
 
 static int try_get_dumpsys_display_info(int *width, int *height) {
     FILE *f;
-    char buf[4096], *p, *q;
+    char buf[4096], *p = NULL, *q;
     int w, h;
 
     if ((f = popen("dumpsys window", "r")) == NULL) {
@@ -274,12 +276,11 @@ static int try_get_dumpsys_display_info(int *width, int *height) {
         return 1;
     }
 
-    if (fgets(buf, 4095, f) == NULL) {
-        LOGE("Could not read dumpsys");
-        return 1;
+    while (fgets(buf, 4095, f) != NULL) {
+        p = strstr(buf, " init=");
+        if (p) break;
     }
 
-    p = strstr(buf, " init=");
     if (!p) {
         LOGE("Unrecognized dumpsys output");
         return 1;
@@ -411,9 +412,9 @@ static unsigned int getImageRotation() {
     } else if ((allowedRotation & (1 << ((s + 2) & 3))) != 0) {
         rot = 180;
     } else if ((allowedRotation & (1 << ((s + 1) & 3))) != 0) {
-        rot = 90;
-    } else { // ((allowedRotation & (1 << ((s + 3) & 3))) != 0)
         rot = 270;
+    } else { // ((allowedRotation & (1 << ((s + 3) & 3))) != 0)
+        rot = 90;
     }
     return rotate180 ? (rot + 180) % 360 : rot;
 }
@@ -422,21 +423,21 @@ static void printUsage(char **argv)
 {
     P("\nUsage: %s [options]\n\n"
       "Server options:\n"
-      "  -p <password>\t- Password to access server\n"
-      "  -e <path to encrypted password file>\t- path to encrypted password file to access server\n"
-      "  -R <host:port>\t- Host for reverse connection\n\n"
+      "  -p <password>\t\t\t Password to access server\n"
+      "  -e <encrypted password file>\t Use encrypted password file\n"
+      "  -P <port>\t\t\t Server port\n"      
+      "  -R <host:port>\t\t Host for reverse connection\n\n"
       "Display options:\n"
-      "  -w <width>\t- Screen width\n"
-      "  -h <height>\t- Screen height\n"      
-      "  -r <rotation>\t- Force screen rotation (degrees) (0,90,180,270)\n"
-      "  -o <orientation>\t- Force screen orientation (landscape, portrait)\n"
-      "  -z\t\t- Rotate display another 180 degrees (for zte compatibility)\n"
-      "  -s <scale>\t- Scale percentage (20,30,50,100,150)\n"
-      "  -d\t\t- Downgrade color when possible\n"
-      "  -f\t\t- Enable frame skipping\n\n"
+      "  -d <width> <height>\t\t Specify screen dimensions\n"
+      "  -r <rotation>\t\t\t Force screen rotation (degrees) (0, 90, 180, 270)\n"
+      "  -o <orientation>\t\t Force screen orientation (landscape, portrait)\n"
+      "  -z\t\t\t\t Rotate display another 180 degrees (for ZTE compatibility)\n"
+      "  -s <scale>\t\t\t Scale percentage (0-100)\n"
+      "  -b <bpp>\t\t\t Screen bytes per pixel (1, 2, 4, 8)\n"
+      "  -f\t\t\t\t Enable frame skipping\n\n"
       "Other options:\n"
-      "-v\t\t- Output version\n"
-      "-?\t\t- Print this help\n", argv[0]);
+      "  -v\t\t\t\t Output version\n"
+      "  -h\t\t\t\t Print this help\n", argv[0]);
 }
 
 int main(int argc, char **argv)
@@ -451,17 +452,15 @@ int main(int argc, char **argv)
         while(i < argc) {
             if(*argv[i] == '-') {
                 switch(*(argv[i] + 1)) {
-                case '?':
+                case 'h':
                     printUsage(argv);
                     return 0;
                 case 'v':
                     P("androidvncserver version " VERSION);
                     return 0;
-                case 'w':
+                case 'd':
                     if (++i >= argc) FATAL("No screen width provided");
                     screenWidth = atoi(argv[i]);
-                    break;
-                case 'h':
                     if (++i >= argc) FATAL("No screen height provided");
                     screenHeight = atoi(argv[i]);
                     break;
@@ -475,9 +474,14 @@ int main(int argc, char **argv)
                     LOGD("Using %s", serverPasswordFile);
                     strcpy(serverPassword, "");
                     break;
-                case 'd':
-                    i++;
-                    downgrade = true;
+                case 'b':
+                    if (++i >= argc) FATAL("No bpp value provided");
+                    desiredBpp = atoi(argv[i]);
+                    if (desiredBpp != 1 &&
+                        desiredBpp != 2 &&
+                        desiredBpp != 4 &&
+                        desiredBpp != 8)
+                        FATAL("Unknown bpp value: %d", desiredBpp);
                     break;
                 case 'z': 
                     i++;
@@ -486,16 +490,17 @@ int main(int argc, char **argv)
                 case 'P':
                     if (++i >= argc) FATAL("No server port provided");
                     serverPort = atoi(argv[i]);
+                    LOGD("Setting server port to %d", serverPort);
                     break;
                 case 's':
                     if (++i >= argc) FATAL("No scaling value provided");
                     r = atoi(argv[i]); 
-                    if (r >= 1 && r <= 150) {
+                    if (r >= 1 && r <= 100) {
                         scaling = r;
                     } else {
                         FATAL("Invalid scaling value: %d%%", r);
                     }
-                    LOGD("Scaling to %d%%\n",scaling);
+                    LOGD("Scaling to %d%%",scaling);
                     break;
                 case 'R':
                     if (++i >= argc) FATAL("No reverse host/port provided");
@@ -532,6 +537,11 @@ int main(int argc, char **argv)
                         FATAL("Cannot specify -o and -r together");
 
                     if (++i >= argc) FATAL("No orientation provided");
+                    for (unsigned int j = 0; j < strlen(argv[i]); j++) {
+                        char c = argv[i][j];
+                        if (c < 'A' || c > 'Z') continue;
+                        argv[i][j] = c + ('a' - 'A');
+                    }
                     if (!strcmp(argv[i], "portrait")) {
                         allowedRotation = ROT_0 | ROT_180;
                         LOGD("Forcing portrait orientation");
@@ -579,6 +589,8 @@ int main(int argc, char **argv)
         }
     }
 
+    LOGD("Screen dimensions: %dx%d", screenWidth, screenHeight);
+
     forcedRotation = allowedRotation != ROT_ALL;
 
     if ((minicap = minicap_create(0)) == NULL) {
@@ -613,8 +625,6 @@ int main(int argc, char **argv)
 
     resetMinicapOrientation();
 
-    Minicap::Frame frame;    
-
     // Grab the first frame so we can check its properties
     if (gWaiter->isStopped())
         FATAL("Frame waiter not started");
@@ -624,86 +634,71 @@ int main(int argc, char **argv)
         FATAL("Could not read first frame");
 
     LOGD("Bytes per pixel: %d", frame.bpp);
-    switch (frame.format) {
-    case Minicap::FORMAT_NONE:
-        LOGD("Image format: none");
-        break;
-    case Minicap::FORMAT_CUSTOM:
-        LOGD("Image format: Custom");
-        break;
-    case Minicap::FORMAT_TRANSLUCENT:
-        LOGD("Image format: Translucent");
-        break;
-    case Minicap::FORMAT_TRANSPARENT:
-        LOGD("Image format: Transparent");
-        break;
-    case Minicap::FORMAT_OPAQUE:
-        LOGD("Image format: Opaque");
-        break;        
-    case Minicap::FORMAT_RGBA_8888:
-        LOGD("Image format: RGBA 8888");
-        break;
-    case Minicap::FORMAT_RGBX_8888:
-        LOGD("Image format: RGBX 8888");
-        break;
-    case Minicap::FORMAT_RGB_888:
-        LOGD("Image format: RGB 888");
-        break;
-    case Minicap::FORMAT_RGB_565:
-        LOGD("Image format: RGB 565");
-        break;
-    case Minicap::FORMAT_BGRA_8888:
-        LOGD("Image format: BGRA 8888");
-        break;
-    case Minicap::FORMAT_RGBA_5551:
-        LOGD("Image format: RGBA 5551");
-        break;
-    case Minicap::FORMAT_RGBA_4444:
-        LOGD("Image format: RGBA 4444");
-        break;
-    case Minicap::FORMAT_UNKNOWN:
-        LOGD("Image format: Unknown");
-        break;
-    default:
-        FATAL("Unknown image format: %d", frame.format);
-    }
-
+    LOGD("Image format: %s", getImageFormatName());
+    
     unsigned int targetBpp = frame.bpp;
-    void (*updateScreenFn)(Minicap::Frame *, int);
+    void (*updateScreenFn)(int);
+    void (*setupScreenFn)();
 
-    if (downgrade) {
+    if (desiredBpp > 0 && (unsigned int) desiredBpp != frame.bpp) {
         // Only support 4 -> 2 for now
         switch (frame.bpp) {
-        case 1: updateScreenFn = &updateScreen1; break;
-        case 2: updateScreenFn = &updateScreen2; break;
-        case 4:
-            updateScreenFn = &updateScreen42;
-            targetBpp = 2;
-            LOGD("Downgrading from 32bit to 16bit color");
+        case 1:            
+            setupScreenFn = &setupScreen1;
+            updateScreenFn = &updateScreen1;
             break;
-        case 8: updateScreenFn = &updateScreen8; break;
+        case 2:
+            setupScreenFn = &setupScreen2;
+            updateScreenFn = &updateScreen2;
+            break;
+        case 4:
+            setupScreenFn = &setupScreen4;
+            updateScreenFn = &updateScreen4;            
+            if (desiredBpp <= 2) {
+                setupScreenFn = &setupScreen42;
+                updateScreenFn = &updateScreen42;
+                targetBpp = 2;
+            }
+            break;
+        case 8:
+            setupScreenFn = &setupScreen8;            
+            updateScreenFn = &updateScreen8;
+            break;
         default:
             FATAL("Unsupported bpp: %d", frame.bpp);
         }
     } else {
         switch (frame.bpp) {
-        case 1: updateScreenFn = &updateScreen1; break;
-        case 2: updateScreenFn = &updateScreen2; break;
-        case 4: updateScreenFn = &updateScreen4; break;
-        case 8: updateScreenFn = &updateScreen8; break;
+        case 1:
+            setupScreenFn = &setupScreen1;
+            updateScreenFn = &updateScreen1;
+            break;
+        case 2:
+            setupScreenFn = &setupScreen2;
+            updateScreenFn = &updateScreen2;
+            break;
+        case 4:
+            setupScreenFn = &setupScreen4;
+            updateScreenFn = &updateScreen4;
+            break;
+        case 8:
+            setupScreenFn = &setupScreen8;
+            updateScreenFn = &updateScreen8;
+            break;
         default:
             FATAL("Unsupported bpp: %d", frame.bpp);
         }
     }
 
     initVncServer(argc, argv, frame.width, frame.height, frame.stride, targetBpp);
-
+    (*setupScreenFn)();
+    
     unsigned int expectedFrameSize = frame.stride * frame.height * frame.bpp;
     if (expectedFrameSize != frame.size)
         FATAL("Unexpected frame size %d, expected %d", frame.size, expectedFrameSize);
 
     // Send the first frame
-    (*updateScreenFn)(&frame, imageRotation);
+    (*updateScreenFn)(imageRotation);
     minicap->releaseConsumedFrame(&frame);
 
     LOGD("VNC server initialized");
@@ -747,23 +742,23 @@ int main(int argc, char **argv)
             resetMinicapOrientation();            
             gWaiter->waitForFrame();
             minicap->consumePendingFrame(&frame);
-
+            
             LOGD("Got first re-oriented frame: width=%d height=%d stride=%d bpp=%d", frame.width, frame.height, frame.stride, frame.bpp);
+            
+            expectedFrameSize = frame.stride * frame.height * frame.bpp;
+            if (frame.size != expectedFrameSize)
+                FATAL("Unexpected frame size %d, expected %d", frame.size, expectedFrameSize);
 
-            unsigned int newFrameSize = frame.stride * frame.height * frame.bpp;
-            if (frame.size != newFrameSize)
-                FATAL("Unexpected frame size %d, expected %d", frame.size, newFrameSize);
-
-            // Reinitialize VNC screen and frame buffer
-            reinitVncServer(frame.width, frame.height, frame.stride, targetBpp, newFrameSize != expectedFrameSize);
-            expectedFrameSize = newFrameSize;
+            // Reinitialize VNC screen and frame buffer            
+            reinitVncServer(frame.width, frame.height, frame.stride, targetBpp);
+            //            (*setupScreenFn)();
 
             // Send the first frame
-            (*updateScreenFn)(&frame, imageRotation);
+            (*updateScreenFn)(imageRotation);
             minicap->releaseConsumedFrame(&frame);
         }
 
-        while (!gWaiter->isStopped() && (pending = gWaiter->getPendingFrames()) > 0) {
+        if (!gWaiter->isStopped() && (pending = gWaiter->waitForFrame()) > 0) {
             if (skipFrames && pending > 1) {
                 // Skip frames if we have too many. Not particularly thread safe,
                 // but this loop should be the only consumer anyway (i.e. nothing
@@ -781,19 +776,35 @@ int main(int argc, char **argv)
                     }
                     minicap->releaseConsumedFrame(&frame);
                 }
-            }
-
-            if ((err = minicap->consumePendingFrame(&frame)) == 0) {
-                (*updateScreenFn)(&frame, imageRotation);
+                
+                // Process the one remaining frame
+                if ((err = minicap->consumePendingFrame(&frame)) == 0) {
+                    (*updateScreenFn)(imageRotation);
+                } else {
+                    if (err == -EINTR) {
+                        LOGD("Frame consumption interrupted by EINTR");
+                    }
+                    else {
+                        LOGE("Unable to consume pending frame");
+                    }
+                }
+                minicap->releaseConsumedFrame(&frame);                
             } else {
-                if (err == -EINTR) {
-                    LOGD("Frame consumption interrupted by EINTR");
-                }
-                else {
-                    LOGE("Unable to consume pending frame");
-                }
+                // Consume all available frames
+                do {
+                    if ((err = minicap->consumePendingFrame(&frame)) == 0) {
+                        (*updateScreenFn)(imageRotation);
+                    } else {
+                        if (err == -EINTR) {
+                            LOGD("Frame consumption interrupted by EINTR");
+                        }
+                        else {
+                            LOGE("Unable to consume pending frame");
+                        }
+                    }
+                    minicap->releaseConsumedFrame(&frame);
+                } while ((pending = gWaiter->getPendingFrames()) > 0);
             }
-            minicap->releaseConsumedFrame(&frame);
         }
     }
 

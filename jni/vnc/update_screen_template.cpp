@@ -16,32 +16,38 @@
 
 #define FUNCTION CONCAT2E(updateScreen, BYTES_PER_PIXEL)
 
-void FUNCTION(Minicap::Frame *frame, int rotation) {
-    unsigned int stride = frame->stride, height = frame->height;
-    TYPE* data = (TYPE*) frame->data;
-    if (rotation == 90) {
-        for (x = 0; x < stride; x++) {
+void FUNCTION(int rotation) {
+    unsigned int stride = frame.stride, height = frame.height, width = frame.width;
+    TYPE* data = (TYPE*) frame.data;
+    if (rotation == 0) {
+        if (stride == width) {
+            memcpy(vncbuf, data, frame.size);
+        } else {
             for (y = 0; y < height; y++) {
-                ((TYPE*)vncbuf)[(stride - x - 1) * height + y] = ((TYPE*)data)[y * stride + x];
+                for (x = 0; x < width; x++) {
+                    ((TYPE*)vncbuf)[y * width + x] = data[y * stride + x];
+                }
+            }
+        }
+    } else if (rotation == 90) {
+        for (y = 0; y < height; y++) {
+            for (x = 0; x < width; x++) {
+                ((TYPE*)vncbuf)[x * height + (height - y - 1)] = data[y * stride + x];
             }
         }                
     } else if (rotation == 180) {
-        for (x = 0; x < stride; x++) {
-            for (y = 0; y < height; y++) {
-                ((TYPE*)vncbuf)[y * stride + x] = ((TYPE*)data)[(height - 1 - y) * stride + (stride - 1 - x)];
+        for (y = 0; y < height; y++) {        
+            for (x = 0; x < width; x++) {
+                ((TYPE*)vncbuf)[(height - y - 1) * width + (width - 1 - x)] = data[y * stride + x];
             }
         }
-    } else if (rotation == 270) {
-        for (x = 0; x < stride; x++) {
+    } else { // if (rotation == 270)
+        for (x = 0; x < width; x++) {
             for (y = 0; y < height; y++) {
-                int targetX = height - y - 1;
-                int targetY = x;
-                ((TYPE*)vncbuf)[targetY * height + targetX] = ((TYPE*)data)[y * stride + x];
+                ((TYPE*)vncbuf)[(width - x - 1) * height + y] = data[y * stride + x];
             }
         }
-    } else {
-        memcpy(vncbuf, data, frame->size);
-    }
+    } 
     rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
 }
 
