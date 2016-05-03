@@ -1,7 +1,7 @@
 #ifndef DROIDVNCSERVER_HPP
 #define DROIDVNCSERVER_HPP
 
-#define VERSION "1.0.4"
+#define VERSION "1.0.5"
 #define LOG_TAG "droidvncserver"
 #define DEBUG 1
 
