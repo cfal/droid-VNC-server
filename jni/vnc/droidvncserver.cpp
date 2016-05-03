@@ -20,6 +20,7 @@
 #include "droidvncserver.hpp"
 #include "rotation_watcher.hpp"
 #include "update_screen.hpp"
+#include "png.h"
 
 #include "rfb/keysym.h"
 #include "libvncserver/scale.h"
@@ -45,6 +46,7 @@ static uint16_t scaling = 100;
 static bool skipFrames = false;
 static int desiredBpp = -1;
 static char *screenshotFile = NULL;
+static bool screenshotIsPNG = NULL;
 
 // Screen info
 static fb_var_screeninfo screenInfo;
@@ -446,7 +448,7 @@ static void printUsage(char **argv)
       "  -b <bpp>\t\t\t Screen bytes per pixel (1, 2, 4, 8)\n"
       "  -f\t\t\t\t Enable frame skipping\n\n"
       "Other options:\n"
-      "  -S <filename>\t\t\t Write JPEG screenshot to filename and quit\n"
+      "  -S <filename>\t\t\t Write JPEG or PNG screenshot to file and quit\n"
       "  -v\t\t\t\t Output version\n"
       "  -h\t\t\t\t Print this help\n", argv[0]);
 }
@@ -566,6 +568,7 @@ int main(int argc, char **argv)
                 case 'S':
                     if (++i >= argc) FATAL("No screenshot filename provided");
                     screenshotFile = argv[i];
+                    screenshotIsPNG = strstr(screenshotFile, ".png") != NULL;
                     LOGD("Set screenshot file: %s", screenshotFile);
                     break;
                 case 'f':
@@ -707,13 +710,18 @@ int main(int argc, char **argv)
     }
 
     if (screenshotFile != NULL) {
-        JpgEncoder encoder(4, 0);
-        FILE *f;
-        unsigned int len, written;
-
+        // On some devices, the first frame seems to be a black screen, so skip to the next one.
+        minicap->releaseConsumedFrame(&frame);
+        gWaiter->waitForFrame();
+        minicap->consumePendingFrame(&frame);
+        
+        // Stop getting informed of more frames on other thread(s)
+        minicap->setFrameAvailableListener(NULL);
+        
         if ((vncbuf = (unsigned char *)malloc(frame.width * frame.height * frame.bpp)) == NULL)
             FATAL("Could not create buffer");
-
+        
+        // Write image to vncbuf
         updateScreenFn(imageRotation);
 
         int targetWidth, targetHeight;
@@ -725,34 +733,123 @@ int main(int argc, char **argv)
             targetHeight = frame.height;
         }
 
-        if (!encoder.reserveData(targetWidth, targetHeight))
-            FATAL("Could not reserve data for screenshot");        
+        if (screenshotIsPNG) {
+            FILE *f;
+            png_structp png_ptr;
+            png_infop info_ptr;
+            png_byte **row_pointers;
+            png_byte *row;
 
-        if (!encoder.encode(vncbuf, targetWidth, targetHeight, targetWidth, frame.bpp, frame.format, SCREENSHOT_JPG_QUALITY))
-            FATAL("Could not encode screenshot");
+            // libpng with type PNG_COLOR_TYPE_RGB must have depth >= 8
+            int depth = targetBpp == 16 ? 16 : 8;
 
-        len = encoder.getEncodedSize();
-        if (!len) 
-            FATAL("Could not get encoded screenshot");
+            if ((f = fopen(screenshotFile, "w+")) == NULL)
+                FATAL("Could not open screenshot file");
 
-        if ((f = fopen(screenshotFile, "w+")) == NULL)
-            FATAL("Could not open screenshot file");
+            if ((png_ptr = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL)) == NULL)
+                FATAL("Could not create PNG");
 
-        written = fwrite(encoder.getEncodedData(), sizeof(char), len, f);
+            if ((info_ptr = png_create_info_struct(png_ptr)) == NULL)
+                FATAL("Could not create PNG (2)");
+            
+            png_set_IHDR(png_ptr, info_ptr, targetWidth, targetHeight, depth, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+            
+            row_pointers = (png_byte **) png_malloc(png_ptr, targetHeight * sizeof(png_byte *));
+            for (int i = 0; i < targetHeight; i++) {
+                row = (png_byte *) png_malloc(png_ptr, sizeof(uint8_t) * targetWidth * targetBpp);
+                row_pointers[i] = row;
+                // TODO: optimize 
+                if (targetBpp == 1) {
+                    // Assume RGB 332, convert to 8 bit depth
+                    uint8_t pixel;
+                    for (int j = 0; j < targetWidth; j++) {
+                        pixel = ((uint8_t *)vncbuf)[i * targetWidth + j];
+                        *row++ = (pixel & 3) << 6;
+                        *row++ = ((pixel >> 2) & 7) << 5;
+                        *row++ = pixel & (7 << 5);
+                    }
+                } else if (targetBpp == 2) {
+                    // Assume RGB 565, convert to 8 bit depth
+                    uint16_t pixel;
+                    for (int j = 0; j < targetWidth; j++) {
+                        pixel = ((uint16_t *)vncbuf)[i * targetWidth + j];
+                        *row++ = (pixel & 31) << 3;
+                        *row++ = ((pixel >> 5) & 63) << 2;
+                        *row++ = ((pixel >> 11) & 31) << 3;
+                    }
+                } else if (targetBpp == 4) {
+                    // Assume RGBA 8888, convert to 8 bit depth
+                    // TODO: BGRA 8888 support
+                    uint32_t pixel;
+                    for (int j = 0; j < targetWidth; j++) {
+                        pixel = ((uint32_t *)vncbuf)[i * targetWidth + j];
+                        *row++ = (pixel & 255);
+                        *row++ = (pixel >> 8) & 255;
+                        *row++ = (pixel >> 16) & 255;
+                    }
+                } else if (targetBpp == 8) {
+                    // 16 bit depth
+                    uint64_t pixel;
+                    for (int j = 0; j < targetWidth; j++) {
+                        pixel = ((uint64_t *)vncbuf)[i * targetWidth + j];
+                        *row++ = (pixel & 65535);
+                        *row++ = (pixel >> 16) & 65535;
+                        *row++ = (pixel >> 32) & 65535;
+                    }
+                }
+            }
 
-        if (ferror(f))
-            FATAL("Could not write screenshot");
+            // Write the png
+            png_init_io(png_ptr, f);
+            // png_set_filter(png_ptr, 0, PNG_FILTER_NONE);
+            // png_set_filter(png_ptr, 0, PNG_FILTER_PAETH);
+            // png_set_compression_level(png_ptr, Z_BEST_COMPRESSION);
+            png_set_compression_level(png_ptr, 3);
+            png_set_rows(png_ptr, info_ptr, row_pointers);
+            png_write_png(png_ptr, info_ptr, PNG_TRANSFORM_IDENTITY, NULL);
 
-        if (fclose(f))
-            FATAL("Could not close screenshot file");
+            for (int i = 0; i < targetHeight; i++)
+                png_free(png_ptr, row_pointers[i]);
 
-        LOGD("Wrote JPEG screenshot: %s", screenshotFile);
+            png_free(png_ptr, row_pointers);
+
+            png_destroy_write_struct(&png_ptr, &info_ptr);
+            fclose(f);
+
+            LOGD("Wrote PNG screenshot: %s", screenshotFile);
+        } else {
+            JpgEncoder encoder(4, 0);
+            FILE *f;
+            unsigned int len;
+
+            if (!encoder.reserveData(targetWidth, targetHeight))
+                FATAL("Could not reserve data for screenshot");        
+
+            if (!encoder.encode(vncbuf, targetWidth, targetHeight, targetWidth, targetBpp, frame.format, SCREENSHOT_JPG_QUALITY))
+                FATAL("Could not encode screenshot");
+
+            len = encoder.getEncodedSize();
+            if (!len) 
+                FATAL("Could not get encoded screenshot");
+
+            if ((f = fopen(screenshotFile, "w+")) == NULL)
+                FATAL("Could not open screenshot file");
+
+            fwrite(encoder.getEncodedData(), sizeof(char), len, f);
+
+            if (ferror(f))
+                FATAL("Could not write screenshot");
+
+            if (fclose(f))
+                FATAL("Could not close screenshot file");
+
+            LOGD("Wrote JPEG screenshot: %s", screenshotFile);
+        }
 
         free(vncbuf);
         
         minicap->releaseConsumedFrame(&frame);
-        minicap->setFrameAvailableListener(NULL);
-        minicap_free(minicap);
+        minicap_free(minicap);        
         return 0;
     }
 
