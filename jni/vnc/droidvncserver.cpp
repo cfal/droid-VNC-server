@@ -55,7 +55,7 @@ static int imageRotation; // Required frame rotation
 // shared VNC buffers and screen
 Minicap::Frame frame;
 rfbScreenInfoPtr vncscr;
-unsigned char *cmpbuf;
+// unsigned char *cmpbuf;
 unsigned char *vncbuf;
 
 // Reverse connection
@@ -135,8 +135,8 @@ static void initVncServer(int argc, char **argv, unsigned int width, unsigned in
     if ((vncbuf = (unsigned char *) malloc(width * height * bpp)) == NULL)
         FATAL("Could not create vnc buffer");
 
-    if ((cmpbuf = (unsigned char *) malloc(width * height * bpp)) == NULL)
-        FATAL("Could not create compare buffer");
+    // if ((cmpbuf = (unsigned char *) malloc(width * height * bpp)) == NULL)
+    //     FATAL("Could not create compare buffer");
 
     int targetWidth, targetHeight;
     if (forcedRotation && (imageRotation == 90 || imageRotation == 270)) {
@@ -243,7 +243,7 @@ void cleanup(int exitCode)
     }
 
     free(vncbuf);
-    free(cmpbuf);
+    //    free(cmpbuf);
 
     exit(exitCode);
 }
