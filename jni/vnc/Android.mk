@@ -34,8 +34,7 @@ LIBVNCSERVER_SRC_FILES:= \
 	$(LIBVNCSERVER_ROOT)/common/d3des.c \
 	$(LIBVNCSERVER_ROOT)/common/vncauth.c \
 	$(LIBVNCSERVER_ROOT)/common/minilzo.c \
-	$(LIBVNCSERVER_ROOT)/common/zywrletemplate.c \
-	$(LIBVNCSERVER_ROOT)/common/turbojpeg.c
+	$(LIBVNCSERVER_ROOT)/common/zywrletemplate.c
 
 LOCAL_CFLAGS += \
   -Wall \
@@ -45,7 +44,6 @@ LOCAL_CFLAGS += \
   -DLIBVNCSERVER_WITH_WEBSOCKETS \
   -DLIBVNCSERVER_HAVE_LIBPNG \
   -DLIBVNCSERVER_HAVE_ZLIB \
-  -DLIBVNCSERVER_HAVE_LIBJPEG \
   -DNOAPP
 
 LOCAL_LDLIBS +=  -llog -lz -ldl
@@ -54,22 +52,21 @@ LOCAL_SRC_FILES += \
 										$(LIBVNCSERVER_SRC_FILES) \
 										rotation_watcher.cpp \
 										update_screen.cpp \
+										JpgEncoder.cpp \
 										droidvncserver.cpp
 
 LOCAL_C_INCLUDES += \
 										$(LOCAL_PATH) \
-										$(LOCAL_PATH)/linux \
 										$(LOCAL_PATH)/../libpng \
-										$(LOCAL_PATH)/../libjpeg-turbo \
 										$(LOCAL_PATH)/../openssl/include \
-										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/libvncserver \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/common \
+										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/libvncserver \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/rfb \
 										$(LOCAL_PATH)/$(LIBVNCSERVER_ROOT)/
 
 LOCAL_SHARED_LIBRARIES := minicap-shared
 
-LOCAL_STATIC_LIBRARIES := libjpeg libpng libssl_static libcrypto_static
+LOCAL_STATIC_LIBRARIES := libjpeg-turbo libpng libssl_static libcrypto_static
 
 LOCAL_MODULE := androidvncserver
 
