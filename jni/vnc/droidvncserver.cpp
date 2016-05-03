@@ -569,7 +569,6 @@ int main(int argc, char **argv)
                     LOGD("Set screenshot file: %s", screenshotFile);
                     break;
                 case 'f':
-                    i++;
                     skipFrames = true;
                     LOGD("Enabled frame skipping");
                 }
