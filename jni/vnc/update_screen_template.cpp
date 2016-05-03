@@ -48,7 +48,6 @@ void FUNCTION(int rotation) {
             }
         }
     } 
-    rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
 }
 
 #undef FUNCTION

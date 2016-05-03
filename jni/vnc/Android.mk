@@ -30,7 +30,7 @@ LIBVNCSERVER_SRC_FILES:= \
 	$(LIBVNCSERVER_ROOT)/libvncserver/zrle.c \
 	$(LIBVNCSERVER_ROOT)/libvncserver/zrleoutstream.c \
 	$(LIBVNCSERVER_ROOT)/libvncserver/zrlepalettehelper.c \
-	$(LIBVNCSERVER_ROOT)/libvncserver/tight.c \
+        $(LIBVNCSERVER_ROOT)/libvncserver/tight.c \
 	$(LIBVNCSERVER_ROOT)/common/d3des.c \
 	$(LIBVNCSERVER_ROOT)/common/vncauth.c \
 	$(LIBVNCSERVER_ROOT)/common/minilzo.c \

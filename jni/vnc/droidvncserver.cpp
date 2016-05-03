@@ -24,12 +24,15 @@
 #include "rfb/keysym.h"
 #include "libvncserver/scale.h"
 #include "Minicap.hpp"
+#include "JpgEncoder.hpp"
 
 #define ROT_0 (1 << 0)
 #define ROT_90 (1 << 1)
 #define ROT_180 (1 << 2)
 #define ROT_270 (1 << 3)
 #define ROT_ALL (ROT_0 | ROT_90 | ROT_180 | ROT_270)
+
+#define SCREENSHOT_JPG_QUALITY 80
 
 // Configurables
 static int serverPort = 5901; // Android already has 5900 bound natively in some devices.
@@ -41,6 +44,7 @@ static bool rotate180 = false;
 static uint16_t scaling = 100;
 static bool skipFrames = false;
 static int desiredBpp = -1;
+static char *screenshotFile = NULL;
 
 // Screen info
 static fb_var_screeninfo screenInfo;
@@ -128,8 +132,11 @@ static void initVncServer(int argc, char **argv, unsigned int width, unsigned in
 { 
     LOGD("initVncServer: bpp: %d, width: %d, height: %d, stride: %d", bpp, width, height, stride);
 
-    vncbuf = (unsigned char *) malloc(width * height * bpp);
-    cmpbuf = (unsigned char *) malloc(width * height * bpp);
+    if ((vncbuf = (unsigned char *) malloc(width * height * bpp)) == NULL)
+        FATAL("Could not create vnc buffer");
+
+    if ((cmpbuf = (unsigned char *) malloc(width * height * bpp)) == NULL)
+        FATAL("Could not create compare buffer");
 
     int targetWidth, targetHeight;
     if (forcedRotation && (imageRotation == 90 || imageRotation == 270)) {
@@ -234,6 +241,9 @@ void cleanup(int exitCode)
         minicap->setFrameAvailableListener(NULL);
         minicap_free(minicap);
     }
+
+    free(vncbuf);
+    free(cmpbuf);
 
     exit(exitCode);
 }
@@ -436,6 +446,7 @@ static void printUsage(char **argv)
       "  -b <bpp>\t\t\t Screen bytes per pixel (1, 2, 4, 8)\n"
       "  -f\t\t\t\t Enable frame skipping\n\n"
       "Other options:\n"
+      "  -S <filename>\t\t\t Write JPEG screenshot to filename and quit\n"
       "  -v\t\t\t\t Output version\n"
       "  -h\t\t\t\t Print this help\n", argv[0]);
 }
@@ -552,6 +563,11 @@ int main(int argc, char **argv)
                         FATAL("Unknown orientation: %s", argv[i]);
                     }
                     break;
+                case 'S':
+                    if (++i >= argc) FATAL("No screenshot filename provided");
+                    screenshotFile = argv[i];
+                    LOGD("Set screenshot file: %s", screenshotFile);
+                    break;
                 case 'f':
                     i++;
                     skipFrames = true;
@@ -654,7 +670,8 @@ int main(int argc, char **argv)
         case 4:
             setupScreenFn = &setupScreen4;
             updateScreenFn = &updateScreen4;            
-            if (desiredBpp <= 2) {
+            if (screenshotFile == NULL && desiredBpp <= 2) {
+                // Convert to RGB_565
                 setupScreenFn = &setupScreen42;
                 updateScreenFn = &updateScreen42;
                 targetBpp = 2;
@@ -690,6 +707,56 @@ int main(int argc, char **argv)
         }
     }
 
+    if (screenshotFile != NULL) {
+        JpgEncoder encoder(4, 0);
+        FILE *f;
+        unsigned int len, written;
+
+        if ((vncbuf = (unsigned char *)malloc(frame.width * frame.height * frame.bpp)) == NULL)
+            FATAL("Could not create buffer");
+
+        updateScreenFn(imageRotation);
+
+        int targetWidth, targetHeight;
+        if (forcedRotation && (imageRotation == 90 || imageRotation == 270)) {
+            targetWidth = frame.height;
+            targetHeight = frame.width;
+        } else {
+            targetWidth = frame.width;
+            targetHeight = frame.height;
+        }
+
+        if (!encoder.reserveData(targetWidth, targetHeight))
+            FATAL("Could not reserve data for screenshot");        
+
+        if (!encoder.encode(vncbuf, targetWidth, targetHeight, targetWidth, frame.bpp, frame.format, SCREENSHOT_JPG_QUALITY))
+            FATAL("Could not encode screenshot");
+
+        len = encoder.getEncodedSize();
+        if (!len) 
+            FATAL("Could not get encoded screenshot");
+
+        if ((f = fopen(screenshotFile, "w+")) == NULL)
+            FATAL("Could not open screenshot file");
+
+        written = fwrite(encoder.getEncodedData(), sizeof(char), len, f);
+
+        if (ferror(f))
+            FATAL("Could not write screenshot");
+
+        if (fclose(f))
+            FATAL("Could not close screenshot file");
+
+        LOGD("Wrote JPEG screenshot: %s", screenshotFile);
+
+        free(vncbuf);
+        
+        minicap->releaseConsumedFrame(&frame);
+        minicap->setFrameAvailableListener(NULL);
+        minicap_free(minicap);
+        return 0;
+    }
+
     initVncServer(argc, argv, frame.width, frame.height, frame.stride, targetBpp);
     (*setupScreenFn)();
     
@@ -699,6 +766,8 @@ int main(int argc, char **argv)
 
     // Send the first frame
     (*updateScreenFn)(imageRotation);
+    rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
+    
     minicap->releaseConsumedFrame(&frame);
 
     LOGD("VNC server initialized");
@@ -755,6 +824,8 @@ int main(int argc, char **argv)
 
             // Send the first frame
             (*updateScreenFn)(imageRotation);
+            rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
+                
             minicap->releaseConsumedFrame(&frame);
         }
 
@@ -780,6 +851,7 @@ int main(int argc, char **argv)
                 // Process the one remaining frame
                 if ((err = minicap->consumePendingFrame(&frame)) == 0) {
                     (*updateScreenFn)(imageRotation);
+                    rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);                    
                 } else {
                     if (err == -EINTR) {
                         LOGD("Frame consumption interrupted by EINTR");
@@ -794,6 +866,7 @@ int main(int argc, char **argv)
                 do {
                     if ((err = minicap->consumePendingFrame(&frame)) == 0) {
                         (*updateScreenFn)(imageRotation);
+                        rfbMarkRectAsModified(vncscr, 0, 0, vncscr->width, vncscr->height);
                     } else {
                         if (err == -EINTR) {
                             LOGD("Frame consumption interrupted by EINTR");
