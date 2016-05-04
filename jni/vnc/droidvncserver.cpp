@@ -17,6 +17,7 @@
   Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -236,6 +237,10 @@ const char *getImageFormatName() {
         FATAL("Unknown image format: %d", frame.format);
     }
     return NULL;
+}
+
+void quitSignal(int signum) {
+    cleanup(0);
 }
 
 void cleanup(int exitCode)
@@ -605,9 +610,22 @@ static void writeScreenToFile(char *filename, int screenBpp) {
     }
 }
 
-static void takeScreenshot(int i) {
-    LOGD("Received SIGCONT signal, taking screenshot..");
+static void takeScreenshot(int signum, siginfo_t *siginfo, void *context) {
+    LOGD("Received signal, taking screenshot..");
     writeScreenToFile((char *)SCREENSHOT_SIGNAL_FILE, vncscr->bitsPerPixel / 8);
+    
+    kill(siginfo->si_pid, SIGCONT);
+    LOGD("Screenshot completed and response was sent.");
+}
+
+static void setupScreenshotSignalHandler() {
+    struct sigaction act;
+    memset(&act, 0x0, sizeof(struct sigaction));
+    act.sa_sigaction = &takeScreenshot;
+    act.sa_flags = SA_SIGINFO;
+
+    if (sigaction(SIGCONT, &act, NULL) < 0)
+        FATAL("Could not setup screenshot signal handler");
 }
 
 static void writePid() {
@@ -628,41 +646,99 @@ static pid_t getRunningServerPid() {
     return (pid_t) pid;
 }
 
-static bool takeFastScreenshot() {
+static void waitForScreenshot(int signum) {
+    LOGD("Received response, screenshot was successfully created.");
+    cleanup(0);
+}
+
+static bool dispatchScreenshotSignal() {
     unlink(SCREENSHOT_SIGNAL_FILE);
     
     pid_t pid = getRunningServerPid();
     if (pid <= 0) return false;
 
+    signal(SIGCONT, waitForScreenshot);
     kill(pid, SIGCONT);
 
-    int i = 0;
-    struct stat st;
-    unsigned long mtime = 0UL;
-   
-    while (true) {
-        if (stat(SCREENSHOT_SIGNAL_FILE, &st) == 0 && st.st_size > 0) {
-            if (st.st_mtime == mtime) {
-                return true;
-            } else {
-                mtime = st.st_mtime;
-                usleep(400000); // Wait 400ms
-            }
-        } else {
-            usleep(400000); // Wait 400ms
-            if (++i >= 5) break;
-        }
-    }
+    // Wait for 4 seconds
+    sleep(4);
+    
+    // If we reach here, then the signal was not received before timeout
+
+    // Remove the signal handler
+    signal(SIGCONT, SIG_DFL);
 
     return false;
+
+    // pause();
+
+    // int i = 0;
+    // struct stat st;
+    // unsigned long last = 0UL;
+   
+    // while (true) {
+    //     if (stat(SCREENSHOT_SIGNAL_FILE, &st) == 0 && st.st_size > 0) {
+    //         if (st.st_mtime == last) {
+    //             return true;
+    //         } else {
+    //             LOGD("STILL CHANGING");
+    //             last = st.st_mtime;
+    //             usleep(750000); // Wait 400ms
+    //         }
+    //     } else {
+    //         usleep(400000); // Wait 400ms
+    //         if (++i >= 5) break;
+    //     }
+    // }
+
+    // return false;
+    
+    // Wait for the signal
+    // sigset_t mask;
+	// sigset_t orig_mask;
+	// struct timespec timeout;
+ 
+	// sigemptyset (&mask);
+	// sigaddset (&mask, SIGCONT);
+ 
+	// if (sigprocmask(SIG_BLOCK, &mask, &orig_mask) < 0) {
+	// 	perror ("sigprocmask");
+	// 	return 1;
+	// }
+ 
+	// timeout.tv_sec = 5;
+	// timeout.tv_nsec = 0;
+ 
+	// do {
+	// 	if (sigtimedwait(&mask, NULL, &timeout) < 0) {
+	// 		if (errno == EINTR) {
+	// 			/* Interrupted by a signal other than SIGCHLD. */
+	// 			continue;
+	// 		}
+	// 		else if (errno == EAGAIN) {
+    //             // Timed out
+    //             return false;
+	// 		}
+	// 		else {
+    //             // Unknown error
+    //             return false;
+	// 		}
+	// 	}
+ 	// 	break;
+	// } while (1);
+    
+    // LOGD("Screenshot completed.");
+    
+    // return true;
+    
 }
 
 int main(int argc, char **argv)
 {
     //pipe signals
-    signal(SIGINT, cleanup);
-    signal(SIGKILL, cleanup);
-    signal(SIGILL, cleanup);
+    signal(SIGINT, quitSignal);
+    signal(SIGKILL, quitSignal);
+    signal(SIGILL, quitSignal);
 
     if(argc > 1) {
         int i = 1, r;
@@ -795,8 +871,7 @@ int main(int argc, char **argv)
 
     // Try to shortcut out by finding a running droidvncserver    
     if (screenshotFast) {
-        if (takeFastScreenshot()) {
-            LOGD("Screenshot completed.");
+        if (dispatchScreenshotSignal()) {
             return 0;
         } else {
             LOGD("Fast screenshot failed, continuing");
@@ -988,7 +1063,7 @@ int main(int argc, char **argv)
     // long usec;
     rfbRunEventLoop(vncscr, -1, TRUE);
 
-    signal(SIGCONT, takeScreenshot);
+    setupScreenshotSignalHandler();
     writePid();
 
     int x, y, pending, err;
