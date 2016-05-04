@@ -664,73 +664,11 @@ static bool dispatchScreenshotSignal() {
     sleep(4);
     
     // If we reach here, then the signal was not received before timeout
-
+    
     // Remove the signal handler
     signal(SIGCONT, SIG_DFL);
 
     return false;
-
-    // pause();
-
-    // int i = 0;
-    // struct stat st;
-    // unsigned long last = 0UL;
-   
-    // while (true) {
-    //     if (stat(SCREENSHOT_SIGNAL_FILE, &st) == 0 && st.st_size > 0) {
-    //         if (st.st_mtime == last) {
-    //             return true;
-    //         } else {
-    //             LOGD("STILL CHANGING");
-    //             last = st.st_mtime;
-    //             usleep(750000); // Wait 400ms
-    //         }
-    //     } else {
-    //         usleep(400000); // Wait 400ms
-    //         if (++i >= 5) break;
-    //     }
-    // }
-
-    // return false;
-    
-    // Wait for the signal
-    // sigset_t mask;
-	// sigset_t orig_mask;
-	// struct timespec timeout;
- 
-	// sigemptyset (&mask);
-	// sigaddset (&mask, SIGCONT);
- 
-	// if (sigprocmask(SIG_BLOCK, &mask, &orig_mask) < 0) {
-	// 	perror ("sigprocmask");
-	// 	return 1;
-	// }
- 
-	// timeout.tv_sec = 5;
-	// timeout.tv_nsec = 0;
- 
-	// do {
-	// 	if (sigtimedwait(&mask, NULL, &timeout) < 0) {
-	// 		if (errno == EINTR) {
-	// 			/* Interrupted by a signal other than SIGCHLD. */
-	// 			continue;
-	// 		}
-	// 		else if (errno == EAGAIN) {
-    //             // Timed out
-    //             return false;
-	// 		}
-	// 		else {
-    //             // Unknown error
-    //             return false;
-	// 		}
-	// 	}
- 	// 	break;
-	// } while (1);
-    
-    // LOGD("Screenshot completed.");
-    
-    // return true;
-    
 }
 
 int main(int argc, char **argv)
