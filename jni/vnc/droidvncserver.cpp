@@ -54,6 +54,7 @@ static bool skipFrames = false;
 static int desiredBpp = -1;
 static char *screenshotFile = NULL;
 static bool screenshotFast = false;
+static bool screenshotSkipFrame = false;
 
 // Screen info
 static fb_var_screeninfo screenInfo;
@@ -456,6 +457,7 @@ static void printUsage(char **argv)
       "  -S <filename>\t\t\t Write JPEG or PNG screenshot to file and quit\n"
       "  -U \t\t\t Try to take screenshot using existing VNC server\n"
       "     \t\t\t Saves to " SCREENSHOT_SIGNAL_FILE "\n"
+      "  -X \t\t\t Skip first frame when saving screenshot (for some Motorola devices)\n"
       "  -v\t\t\t\t Output version\n"
       "  -h\t\t\t\t Print this help\n", argv[0]);
 }
@@ -605,7 +607,7 @@ static void writeScreenToFile(char *filename, int screenBpp) {
 
 static void takeScreenshot(int i) {
     LOGD("Received SIGCONT signal, taking screenshot..");
-    writeScreenToFile(SCREENSHOT_SIGNAL_FILE, vncscr->bitsPerPixel / 8);
+    writeScreenToFile((char *)SCREENSHOT_SIGNAL_FILE, vncscr->bitsPerPixel / 8);
 }
 
 static void writePid() {
@@ -636,20 +638,18 @@ static bool takeFastScreenshot() {
 
     int i = 0;
     struct stat st;
-    time_t modTime = 0;
+    unsigned long mtime = 0UL;
    
     while (true) {
         if (stat(SCREENSHOT_SIGNAL_FILE, &st) == 0 && st.st_size > 0) {
-            if (st.st_mtime == modTime) {
+            if (st.st_mtime == mtime) {
                 return true;
             } else {
-                LOGD("Still changing..");
-                modTime = st.st_mtime;
-                usleep(500000); // Wait 400ms
+                mtime = st.st_mtime;
+                usleep(400000); // Wait 400ms
             }
         } else {
-            LOGD("No fast screenshot");
-            usleep(500000); // Wait 400ms
+            usleep(400000); // Wait 400ms
             if (++i >= 5) break;
         }
     }
@@ -769,19 +769,23 @@ int main(int argc, char **argv)
                         FATAL("Unknown orientation: %s", argv[i]);
                     }
                     break;
+                case 'f':
+                    skipFrames = true;
+                    LOGD("Enabled frame skipping");
+                    break;
                 case 'S':
                     if (++i >= argc) FATAL("No screenshot filename provided");
                     screenshotFile = argv[i];
                     LOGD("Set screenshot file: %s", screenshotFile);
                     break;
                 case 'U':
-                    screenshotFile = SCREENSHOT_SIGNAL_FILE;
+                    screenshotFile = (char *) SCREENSHOT_SIGNAL_FILE;
                     screenshotFast = true;
                     LOGD("Attemping fast screenshot: %s", screenshotFile);
                     break;
-                case 'f':
-                    skipFrames = true;
-                    LOGD("Enabled frame skipping");
+                case 'X':
+                    screenshotSkipFrame = true;
+                    LOGD("Skipping first frame for screenshot");
                     break;
                 }
             }
@@ -929,14 +933,12 @@ int main(int argc, char **argv)
     }
 
     if (screenshotFile != NULL) {
-        // On some devices, the first frame seems to be a black screen, so skip to the next one when we don't have to wait.
-        // if (gWaiter->getPendingFrames()) {
-        //     minicap->releaseConsumedFrame(&frame);
-        //     minicap->consumePendingFrame(&frame);
-        // }
-        minicap->releaseConsumedFrame(&frame);
-        gWaiter->waitForFrame();
-        minicap->consumePendingFrame(&frame);
+        if (screenshotSkipFrame) {
+            // On some devices, the first frame seems to be a black screen, so skip to the next one when enabled
+            minicap->releaseConsumedFrame(&frame);
+            gWaiter->waitForFrame();
+            minicap->consumePendingFrame(&frame);
+        }
         
         // Stop getting informed of more frames on other thread(s)
         minicap->setFrameAvailableListener(NULL);
