@@ -258,7 +258,7 @@ void cleanup(int exitCode)
     }
 
     free(vncbuf);
-    //    free(cmpbuf);
+    // free(cmpbuf);
 
     exit(exitCode);
 }
@@ -461,7 +461,7 @@ static void printUsage(char **argv)
       "Other options:\n"
       "  -S <filename>\t\t\t Write JPEG or PNG screenshot to file and quit\n"
       "  -U \t\t\t Try to take screenshot using existing VNC server\n"
-      "     \t\t\t Saves to " SCREENSHOT_SIGNAL_FILE "\n"
+      "     \t\t\t (Saves to " SCREENSHOT_SIGNAL_FILE ")\n"
       "  -X \t\t\t Skip first frame when saving screenshot (for some Motorola devices)\n"
       "  -v\t\t\t\t Output version\n"
       "  -h\t\t\t\t Print this help\n", argv[0]);
@@ -795,7 +795,7 @@ int main(int argc, char **argv)
                 case 'U':
                     screenshotFile = (char *) SCREENSHOT_SIGNAL_FILE;
                     screenshotFast = true;
-                    LOGD("Attemping fast screenshot: %s", screenshotFile);
+                    LOGD("Attempting fast screenshot: %s", screenshotFile);
                     break;
                 case 'X':
                     screenshotSkipFrame = true;
@@ -812,7 +812,7 @@ int main(int argc, char **argv)
         if (dispatchScreenshotSignal()) {
             return 0;
         } else {
-            LOGD("Fast screenshot failed, continuing");
+            LOGD("Fast screenshot failed, continuing normal screenshot");
         }
     }
 
@@ -1035,9 +1035,8 @@ int main(int argc, char **argv)
             if (frame.size != expectedFrameSize)
                 FATAL("Unexpected frame size %d, expected %d", frame.size, expectedFrameSize);
 
-            // Reinitialize VNC screen and frame buffer            
+            // Reinitialize VNC screen
             reinitVncServer(frame.width, frame.height, frame.stride, targetBpp);
-            //            (*setupScreenFn)();
 
             // Send the first frame
             (*updateScreenFn)(imageRotation);
