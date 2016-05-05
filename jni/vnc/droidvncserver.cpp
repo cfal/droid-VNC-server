@@ -243,16 +243,26 @@ void quitSignal(int signum) {
     cleanup(0);
 }
 
-void cleanup(int exitCode)
-{ 	
-    LOGD("Cleaning up...");
+void cleanup(int exitCode) { 	
+    bool isServer = screenshotFile == NULL;
 
+    LOGD("Cleaning up...");
+    
+    // Deleting the server PID file could be added here, but that would cause
+    // unnecessary activity on the flash memory. Leaving it is fine and would not
+    // affect screenshot signalling behavior as the kill() call will fail.
+    // if (isServer) {
+    //     deleteServerPid();
+    // }
+    
     stop_rotation_watcher();
 
     if (minicap) {
-        // Server hasn't been initialized if minicap isn't
-        // Don't disconnect clients here else a reconnect can happen before exit
-        rfbShutdownServer(vncscr, FALSE);
+        if (isServer) {
+            // Server hasn't been initialized if minicap isn't
+            // Don't disconnect clients here else a reconnect can happen before exit
+            rfbShutdownServer(vncscr, FALSE);
+        }
         minicap->setFrameAvailableListener(NULL);
         minicap_free(minicap);
     }
@@ -628,10 +638,16 @@ static void setupScreenshotSignalHandler() {
         FATAL("Could not setup screenshot signal handler");
 }
 
-static void writePid() {
-    FILE *f = fopen(PID_FILE, "w+");
+static int writeServerPid() {
+    FILE *f;
+    if ((f = fopen(PID_FILE, "w+")) == NULL) return 1;
     fprintf(f, "%d", getpid());
-    fclose(f);
+    if (fclose(f)) return 1;
+    return 0;
+}
+
+static int deleteServerPid() {
+    return unlink(PID_FILE);
 }
 
 static pid_t getRunningServerPid() {
@@ -652,7 +668,8 @@ static void waitForScreenshot(int signum) {
 }
 
 static bool dispatchScreenshotSignal() {
-    unlink(SCREENSHOT_SIGNAL_FILE);
+    if (unlink(SCREENSHOT_SIGNAL_FILE) < 0)
+        FATAL("Could not remove old screenshot " SCREENSHOT_SIGNAL_FILE);
     
     pid_t pid = getRunningServerPid();
     if (pid <= 0) return false;
@@ -1002,7 +1019,7 @@ int main(int argc, char **argv)
     rfbRunEventLoop(vncscr, -1, TRUE);
 
     setupScreenshotSignalHandler();
-    writePid();
+    writeServerPid();
 
     int x, y, pending, err;
 
