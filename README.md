@@ -1,84 +1,67 @@
-Fork of droid-VNC-server that uses openstf's minicap shared library for screen capture, with some additional features.
-WIP - Currently only works as a VNC viewer
+# Android VNC Viewer
 
-## Original docs
+This is an Android VNC server for Android 4.4 to 7.1 (lower Android versions may work, but untested). Originally forked from [droidVncServer](https://github.com/oNaiPs/droidVncServer), this project has been rewritten in C++ and currently only supports screen capture (ie. it cannot manipulate the device). It uses [libvncserver](https://libvnc.github.io) for VNC server capabilities, and the OpenSBF project's [minicap-shared](/opensbf/minicap/) native library as an interface for capturing frames.
 
-The droid-VNC-server projects consists in three main modules parts: the daemon, wrapper libs and the GUI.
+Features:
 
-## Daemon
+- Fast screenshot
+- Color degradation
+- Image scaling
+- Orientation change support
+- Forced orientation support
 
-Provides the vnc server functionality, injects input/touch events, clipboard management, etc
-Available in jni/ folder
+This project cannot:
 
-## Wrapper libs
+- Be started from the phone itself
+- Control the phone
 
-Compiled against the AOSP so everyone can build the daemon/GUI without having to fetch +2GB files.
-Currently there are 2 wrappers, gralloc and flinger.
+### Force screen rotation or orientation (`-r`, `-o`)
 
-Available in nativeMethods/ folder, and precompiled libs in nativeMethods/lib/
+This can force the VNC viewer to display a screen rotated at 0, 90 or 270 degrees, or in landscape or portrait orientation.
 
-## GUI
+If the device is in landscape mode, and portrait orientation is forced, the VNC server will transform the image to display the screen sideways.
 
-GUI handles user-friendly control of the daemon. Connects to the daemon using local IPC.
-Should use `vnc-build.sh` and `vnc-daemon.sh` instead though.
+As another example, forcing landscape orientation means that a device rotated at 90 or 270 degrees will be displayed upright by the VNC server. Forcing a 90 degree rotation means that a device rotated at 90 degrees will be displayed upright, while a device rotated at 270 degrees will instead be displayed upside down.
 
-## Compiling
+On some ZTE devices, the `-z` flag is necessary for the rotation or orientation to be set correctly.
 
-Use the `vnc-build.sh` script to build the daemon and wrapper libs and to deploy to a connected device.
+### Orientation change support
 
-Options:
+When VNC screen rotation/orientation is not enforced, the VNC server will automatically resize its screen to mirror the device's current orientation. Detection of orientation changes is done using the OpenSBF project's [RotationWatcher.apk](/opensbf/RotationWatcher.apk).
 
-    - `-w`: Compile the wrapper libs
-    - `-s`: Skip deploy to device
-    - `-a SDK`: Specify which SDK number to use
+### Android screenshot (`-S`, `-U`)
 
-Pushes the androidvncserver and wrapper lib to /data/local sets the proper permissions.
+Starting the binary with the `-S` flag will take a screenshot instead of starting the VNC server. Depending on the filename, the saved screenshot will be encoded in JPEG or PNG format. JPEG encoding is done using the included `libjpeg-turbo` library, while PNG encoding is done using the `libpng` library.
 
-## Starting the daemon
+When the VNC server is running on the phone, starting the VNC server binary with the `-U` flag will instead send a signal to the VNC server and cause it to save the current frame to `/data/local/tmp/screen.png`. This approach is much faster than running `screencap` on the Android device to take a screenshot.
 
-Use the `vnc-daemon.sh` script to control the daemon.
+On some Motorola devices, the `-X` flag is necessary to skip the first frame (which is always black), when a running VNC server is not found for fast screenshot to work.
 
-Options:
+### Screen scaling (`-s`)
 
-    - `-s VAL`: Set the scale. Defaults to 100.
-    - `-m VAL': Choose the screen capture method, gralloc or flinger (default).
+By default, the VNC screen size will be the same as the device screen size (ie. 100%). This allows for scaling the VNC screen to a larger or smaller size.
 
-Arguments:
+### Color degradation (`-b`)
 
-    - `start`
-    - `stop`
-    - `restart`
+The `-b` flag allows you to specify the number of bytes per pixel (bpp). By default, bpp will be the same as on the device. The following color formats are used:
 
-## Building the GUI App
+- bpp 1: RGB 332
+- bpp 2: RGB 565
+- bpp 4: RGBA 8888
+- bpp 8: R16G16B16A16
 
-It shouldn't be necessary to use the GUI app to control the daemon, but if
-you must, here are the steps:
+## Build requirements
 
-### Compile C daemon
+- [Android NDK](https://developer.android.com/ndk/index.html) must be installed. If using the `run.sh` script, `ndk-build` must be in your path.
+- Android platform-tools must be installed and `adb` must be in your path to push files to the target device. See the [Android Developers](https://developer.android.com/index.html) website for details.
 
-In project folder:
+## Building and running
 
-  1. `$ ndk-build`
-  1. `$ ./updateExecsAndLibs.sh`
+1. Run `download_minicap.sh` to download the prebuilt `minicap-shared` libraries from the [minicap](/openstf/minicap) repo.
+2. `git clone https://github.com/openstf/RotationWatcher.apk`
+3. Run `./gradlew assembleDebug` to build the RotationWatcher app.
+4. Copy the built apk to the root of this repo as `rotate.apk`
+5. Connect the target device with debugging enabled.
+6. Run the `run.sh` script.
 
-### Compile Wrapper libs
-
-Setup:
-
-    1. `$ cd <aosp_folder>`
-    1. `$ . build/envsetup.sh`
-    1. `$ lunch`
-    1. `$ ln -s <droid-vnc-folder>/nativeMethods/ external/`
-
-To build:
-
-    1. `$ cd external/nativeMethods`
-    1. `$ mm .`
-    1. `$ cd <droid-vnc-folder>`
-    1. `$ ./updateExecsAndLibs.sh`
-
-### Compile GUI
-
-Use ant to build and deploy.
-
-`$ ant debug install`
+Note that the `run.sh` script only expects a single device connected to the computer. It will be necessary to modify the script and use the `-s` flag with `adb` commands to target a specific device if multiple devices are connected.
